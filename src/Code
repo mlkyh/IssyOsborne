@@ -1,0 +1,1390 @@
+//Copyright © 2023  Yahiaoui, M. (1), Mazuyer, D. (2), Cayer-Barrioz, J. (2)
+//Instituation 1: Laboratoire Génie de Production, Ecole Nationale d'Ingénieurs de Tarbes
+//Intitution 2: Laboratoire de Tribologie et Dynamique des Systèmes, Ecole Centrale de Lyon
+//Email: malik.yahiaoui@enit.fr
+//License: GPL-3.0-or-later
+//Year: January 2023
+//Reference: Yahiaoui, M., Mazuyer, D., Cayer-Barrioz, J., 2020. Transient effects of squeeze and starvation in an EHL contact under forced oscillation: On the film-forming capability. Tribology International 150, 106375. https://doi.org/10.1016/j.triboint.2020.106375
+
+//This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+
+//This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+
+//You should have received a copy of the GNU General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+#pragma TextEncoding = "UTF-8"
+#pragma rtGlobals=3		// Use modern global access method and strict wave access.
+#include <FilterDialog> menus=0
+#include <Resize Controls>
+#include <Rewrite Control Positions>
+
+
+Macro Main()
+	PauseUpdate
+
+	//Profile autocalculation
+	if(AutoProf && ChangeVal || checkact)
+		profilCalc()
+	endif
+	ChangeVal=0
+
+	//Initialize data names	
+	if(Exists("Hnames"))
+		variable NHn=Numpnts(Hnames)
+		if(NHn)
+			variable ii=0
+			do
+				Killwaves/Z $HNames[ii]
+				ii+=1
+			while(ii<Nhn)
+			KillWaves/A/Z
+		endif
+	endif
+
+	//Profiles window creation and profiles centering
+	variable minspread=min(abs(wavemin(DxRaw)),wavemax(DxRaw))
+	SetScale/I x -minspread,minspread,"", Hu0Raw
+	
+	Duplicate/O Hu0Raw,Hu0
+	Duplicate/O DxRaw,Dx
+	Profiles()
+	
+	variable Del=0
+	do
+		Del+=1
+	while(DxRaw[Del]<-minspread)
+	DeletePoints 0,Del, Hu0,Dx
+	Del=Numpnts(Dx)-1
+	do
+		Del-=1
+	while(Dx[Del]>minspread)
+	redimension/N=(Del) Hu0,Dx
+
+
+	//Data and variables definition
+	variable Np=numpnts(Dx)
+	variable/G Nt=ntau*(tau/deltat)+1
+
+	Make/O/N=(Np) H=nan
+	Make/O/N=(Nt) temps=x*deltat,Hcentre=nan,Tx=temps*u0*1E-3/(b*1E-6)
+
+	SetScale/I x -minspread,minspread,"", Hu0,H
+
+	Wavestats/Q Hu0
+	variable/G Xm=V_minloc
+	variable/G X1=-1
+	
+	variable/G Sigma=tau*u0*1E-3/(b*1E-6)
+
+	Make/O/N=(Nt) TColor=nan
+	Make/O/T/N=(Nt) HNames=""
+	duplicate/O H,Htemp
+	
+	Make/O/N=(Nt) Ut=Tri(temps,tau,U0) //Triangular velocity
+	Make/O/N=(Nt) Sx=Ut/U0 //Triangular dimensionless velocity
+	
+	Make/O/N=(Nt) tempsD=temps+1*tau//Phase shift velocity (previous dimple consideration)
+	Make/O/N=(Nt) Ud=Tri(tempsD,tau,U0)
+	
+	SetScale/I x temps[0],temps[Nt-1],"", Ut
+
+	variable/G PH=Fn/(pi*(b*1E-6)^2) //Hertzian mean contact pressure
+	Variable rhoP=(0.5910E9+1.346*PH)/(0.5910E9+PH) //Dowson-Higginson lubricant compressibility
+	
+	if(HerseyRstar) //Hersey number and Limit Hersey number
+		variable/G NH=eta0*u0*1E-3/(Ph*Rstar*1E-9)
+		variable/G NHlimit=0.01
+	else
+		variable/G NH=eta0*Freq/Ph
+		variable/G NHlimit=5.06316e-08
+	endif
+
+	//Core algorithme/////////////////////////////////////////
+	variable Stemp=0
+	variable/G HTEG=0
+	variable ks=1
+	Variable Hm=0.9
+	variable n=0
+	variable j=0
+	variable i=0
+	variable u=0
+	variable SigLim=1200 //erfc function accuracy limit, a finite development of erfc is then used
+	do
+		HNames[n]="H"+num2str(n)
+	
+		//First deceleration///////////////////////////////////////
+		if(temps[n]<=tau)
+			j=0
+			do
+				if(Dx[j]-X1-Sigma*(1-Sx[n]^2)/2>=0)
+					H[j]=Hu0(Dx[j])
+				else
+					Stemp=sqrt(Sx[n]^2-2*(X1-Dx[j])/Sigma)
+					
+					if(Sigma>Siglim)
+						H[j]=Hu0[j]*(Stemp)^(3/4)
+					else
+						H[j]=Hu0[j]*exp(-Sigma*Stemp^2/4)/(exp(-Sigma/3)+sqrt(Sigma*pi/3)*(-erfc(sqrt(Sigma/3))+erfc(Stemp*sqrt(Sigma/3))))^(3/4)
+					endif
+				endif		
+				
+				if(Dx[j]<X1)
+					Stemp=sqrt(Sx[n]^2)
+					if(Sigma>Siglim)
+						H[j]=Hu0[j]*(Stemp)^(3/4)
+					else
+						H[j]=Hu0[j]*exp(-Sigma*Stemp^2/4)/(exp(-Sigma/3)+sqrt(Sigma*pi/3)*(-erfc(sqrt(Sigma/3))+erfc(Stemp*sqrt(Sigma/3))))^(3/4)
+					endif
+				endif	
+									
+				j+=1
+			while(j<Np)
+
+			Htemp=H
+
+		endif
+		
+	
+		//Starvation coefficient definition Ks
+
+		if(NH>NHlimit)// (strk*1E-3)/(b*1E-6)<4 condition de fretting, l'inlet est partiellement 
+			Ks=(Htemp(-Sign(Sx[n])*Xm)/(RhoP*H(0)))/(1+(Htemp(-Sign(Sx[n])*Xm)/(RhoP*H(0)))^(Gama(abs(Ud[n])*1E-3)))^(1/Gama(abs(Ud[n])*1E-3))
+			
+			
+			if(temps[n]>=tau && mod(floor(temps[n]/tau),2)==1)
+				Sigma=tau*u0*1E-3/(b*1E-6)
+			else
+				Sigma=(NHlimit/NH)*tau*u0*1E-3/(b*1E-6)
+			endif
+			
+		else
+			
+			if(temps[n]>=tau && mod(floor(temps[n]/tau),2)==1) //que pour les accélérations, sinon Ks de la précédente accélération
+				Ks=(Htemp(-Sign(Sx[n])*Xm)/(RhoP*H(0)))/(1+(Htemp(-Sign(Sx[n])*Xm)/(RhoP*H(0)))^(Gama(U0*1E-3)))^(1/Gama(U0*1E-3))
+			else
+				//Ks is equal to the last value at the end of an acceleration as no starvation during decelerations and no cavitation wake cross over occur
+			endif
+			
+		endif
+			
+		if((strk*1E-3)/(b*1E-6)<2)//Fretting like conditions consideration inducing a no flooded inlet 
+			
+			ks=1E-3
+			
+		endif
+
+		//Decelerations////////////////////////////////////////
+		if(temps[n]>tau && mod(floor(temps[n]/tau),2)==0) 
+		
+			j=0
+			do	
+					
+				if(Sx[n]>=0) //Direction change consideration
+					u=j
+				else
+					u=Np-1-j
+				endif
+			
+										
+				if(Dx[j]+X1-Sigma*(1-Sx[n]^2)/2>0)
+					H[u]=Htemp(-Sign(Sx[n])*(Dx[j]-Sigma*(1-Sx[n]^2)/2))	
+				else
+					Stemp=sqrt(Sx[n]^2+2*(-X1+Dx[j])/Sigma)			
+					if(Sigma>Siglim)
+						H[u]=ks*Hu0[j]*(Stemp)^(3/4)
+					else
+						H[u]=ks*Hu0[j]*exp(-Sigma*Stemp^2/4)/((Hu0(-Xm)/HTEG)^(4/3)*exp(-Sigma/3)+sqrt(Sigma*pi/3)*(-erfc(sqrt(Sigma/3))+erfc(Stemp*sqrt(Sigma/3))))^(3/4)
+					endif
+				endif
+				
+			   
+				if(Dx[j]>Xm)
+					Stemp=sqrt(Sx[n]^2+2*(-X1+Dx[j])/Sigma)			
+					if(Sigma>Siglim)
+						H[u]=ks*Hu0[j]*(Stemp)^(3/4)
+					else
+						H[u]=ks*Hu0[j]*exp(-Sigma*Stemp^2/4)/((Hu0(-Xm)/HTEG)^(4/3)*exp(-Sigma/3)+sqrt(Sigma*pi/3)*(-erfc(sqrt(Sigma/3))+erfc(Stemp*sqrt(Sigma/3))))^(3/4)
+					endif
+				endif
+				
+				if(Dx[j]<X1)
+					Stemp=sqrt(Sx[n]^2)
+					if(Sigma>Siglim)
+						H[u]=ks*Hu0[j]*(Stemp)^(3/4)
+					else
+						H[u]=ks*Hu0[j]*exp(-Sigma*Stemp^2/4)/((Hu0(-Xm)/HTEG)^(4/3)*exp(-Sigma/3)+sqrt(Sigma*pi/3)*(-erfc(sqrt(Sigma/3))+erfc(Stemp*sqrt(Sigma/3))))^(3/4)
+					endif
+				endif
+			   
+				if(NH>NHlimit)
+					if(abs(Sx[n])>Sx[1])
+						H[u]=Htemp(Sign(Sx[n])*Dx[j])
+					endif
+				endif
+			   
+				j+=1		
+			while(j<Np)
+				
+				
+				
+			Htemp=H				
+		endif
+		
+		//Accelerations///////////////////////////////////////////////////////
+		if(temps[n]>=tau && mod(floor(temps[n]/tau),2)==1) 
+		
+			j=0
+			do	
+				if(Sx[n]>0)	
+					u=j
+				else
+					u=Np-1-j
+				endif	
+			
+				if(Dx[j]+Xm-Sigma*Sx[n]^2/2>=0)		
+					H[u]=Htemp(Sign(Sx[n])*(Dx[j]-Sigma*(Sx[n]^2)/2))
+							
+				else		
+					Stemp=-sqrt(Sx[n]^2-2*(Dx[j]+Xm)/Sigma)
+					H[u]=ks*Hu0[j]*exp(Sigma*Stemp^2/4)/((ks*Hu0[j]/Htemp(-Sign(Sx[n])*Xm))^(4/3)-sqrt(Sigma*pi/3)*erfi(Stemp*sqrt(Sigma/3)))^(3/4)
+			
+				endif
+				
+				if(Dx[j]<-Xm)
+					Stemp=-sqrt(Sx[n]^2)
+					H[u]=ks*Hu0[j]*exp(Sigma*Stemp^2/4)/((ks*Hu0(-Xm)/Htemp(-Sign(Sx[n])*Xm))^(4/3)-sqrt(Sigma*pi/3)*erfi(Stemp*sqrt(Sigma/3)))^(3/4)
+				endif
+			
+				if(Dx[j]>=Xm)
+					if(abs(Sx[n])<=1.6*sigma^(-0.8)+0.08) // Oulet calculation adjustment
+						H[u]=Htemp(Sign(Sx[n])*Dx[j])
+					else
+						if(abs(Sx[n])>sqrt(4*Xm/Sigma))
+							Stemp=-sqrt(Sx[n]^2-4*Xm/Sigma)
+							H[u]=ks*Hu0[j]*exp(Sigma*Stemp^2/4)/((ks*Hu0(Xm)/Htemp(-Sign(Sx[n])*Xm))^(4/3)-sqrt(Sigma*pi/3)*erfi(Stemp*sqrt(Sigma/3)))^(3/4)
+						else
+							Stemp=-sqrt(Sx[n]^2+2*(Dx[j]+X1)/Sigma)			
+							H[u]=ks*Hu0[j]*exp(Sigma*Stemp^2/4)/((ks*Hu0(-X1)/Htemp(Sign(Sx[n])*Xm))^(4/3)-sqrt(Sigma*pi/3)*erfi(Stemp*sqrt(Sigma/3)))^(3/4)
+						endif
+					endif
+				endif
+	
+				j+=1
+			while(j<Np)
+	
+	
+			Htemp=H
+			
+			
+			//Acceleratio/Deceleration connection (Erthel profile flatness correction)//////////////////
+			if(numtype(HTemp(-Sign(Sx[n])*Xm))!=2)
+				CurveFit/Q line HTemp(Sign(Sx[n])*X1,-Sign(Sx[n])*Xm) /X=Dx  
+				HTEG=(1/ks)*(W_coef[0]+W_coef[1]*Sign(Sx[n])*X1)
+			endif
+
+		endif
+		
+		//Profiles graph generation//////////////////////////////////////////////////////////////////////////////
+		Hcentre[n]=H(0)
+		
+		Duplicate/O H $HNames[n]
+		
+		if(n)
+			AppendToGraph/W=IssyOsborne#Profiles $HNames[n]
+		endif
+		
+		n+=1
+	while(n<Nt-1)
+	
+	//Curves color
+	colorize()
+	
+	//Central thickness graph
+	if(temps[Nt-1]<tau)
+		Central_Thickness_()
+	else
+		Central_Thickness()
+	endif	
+	
+	//Acceleration/deceleration view range selection
+	HideCurves()
+	
+	//Waterfall graph
+	WinWaterfall()
+		
+	ResumeUpdate
+end
+////////////////////////////////////////////////Core algorithm end////////////////////
+
+//Functions and macros
+
+Function Gama(v) //New definition of Chevalier's starvation parameter
+	variable v
+	NVAR eta0,Estar,Rb,Alpha,Fn,u0,Ph,Rstar
+	variable U=0.5*v*eta0/(2*Estar*Rb*10^(-3))
+	variable G=Alpha*1E-9*2*Estar
+	variable W=Fn/(2*Estar*(Rb*10^(-3))^2)
+	variable k=1.0339
+	variable hc=(2.69*U^0.67*G^0.53*W^(-0.067)*(1-0.61*exp(-0.73*k)))*Rb*10^(-3)
+	variable Gam=8.1836*1E6*Hc
+
+	return Gam
+end
+
+Function Tri(t,tau,A) //Triangle function
+	variable t
+	variable tau
+	variable A
+	variable nTo=floor(t/(2*tau)) 
+	
+	return (-1)^(nTo-1)*A*(t/tau-2*nTo-1)
+end
+
+
+Macro colorize() //Curves color
+	Make/O RGBtriplet
+	variable RedR,BleuB,GreenG
+	variable n=0
+	do
+		RGBColor(n,Nt,RGBtriplet) 
+		RedR=RGBtriplet[2]
+		GreenG=RGBtriplet[1]
+		BleuB=RGBtriplet[0]
+		ModifyGraph rgb($HNames[n])=(RedR,GreenG,BleuB)
+		TColor[n]=floor(temps[n]/tau)
+		n+=1
+	while(n<Nt-1)
+end
+
+
+Macro HideCurves() //Curves range display
+	if(hideit)
+		if(nmax>ntau)
+			nmax=ntau
+		endif
+
+		if(nmax<=nmin)
+			nmin=nmax-1
+		endif
+		
+		if(nmax==0 && nmin==0)
+			nmax=1
+		endif
+		
+		
+		if(nmin!=0)
+			variable hidemin=0
+			do
+				ModifyGraph/W=IssyOsborne#Profiles hideTrace($HNames[hidemin])=1
+				Hcentre[hidemin]=nan
+				hidemin+=1
+			while(hidemin<nmin*tau/deltat)
+		endif
+		if(nmax!=ntau)
+			variable hidemax=floor(nmax*tau/deltat)
+			do
+				ModifyGraph/W=IssyOsborne#Profiles hideTrace($HNames[hidemax])=1
+				Hcentre[hidemax]=nan
+				hidemax+=1
+			while(hidemax<Nt-1)
+		endif
+	endif
+
+end
+
+Macro profilCalc() //Initial profile generation
+	PauseUpdate
+	variable /G Estar=10^(9)/((1-nubille^2)/Ebille+(1-nuplan^2)/Eplan)
+	variable ac=(3*Fn*Rb*10^(-3)/(4*Estar))^(1/3) 
+	variable /G b=ac*1E6
+	variable U=0.5*U0*1E-3*eta0/(2*Estar*Rb*10^(-3))
+
+	variable G=Alpha*10^(-9)*2*Estar
+	variable W=Fn/(2*Estar*(Rb*10^(-3))^2)
+	variable k=1.0339
+
+
+	variable/G hc=(2.69*U^0.67*G^0.53*W^(-0.067)*(1-0.61*exp(-0.73*k) ))*Rb*10^(-3) //Hamrock-Dowson equation
+
+
+	//Moes-Venner equation
+	variable M=W*(2*U)^(-3/4)
+	variable L=G*(2*U)^(1/4)
+	variable rh=exp(1-6/(L+8))
+	variable sh=12-10*exp(-M^(-2))
+	variable th=1-exp(-0.7*M^(1/22)*L^(1/2))
+	variable/G hcen=((((1.56*M^(-0.055)*L^0.52*th)^rh+(2*M^(-1/8))^rh)^(sh/rh)+(47.3*M^(-2))^sh)^(1/sh))*Rb*10^(-3)*(2*U)^(1/2)
+	variable/G PH=Fn/(pi*(b*1E-6)^2)
+	variable X1=-1
+	variable Xm=(3-pi)/2+1 //0.93
+
+	Make/O/N=(Np) DxRaw=Rdist*(2*x/Np-1),Hu0Raw=nan,Hu0Raw1,Hu0Raw2,Hu0Raw3,Hu0Raw4,Hu0Raw5,Hu0Raw6
+	SetScale/I x DxRaw[0],DxRaw[Np-1],"", Hu0raw
+
+	variable XL=Np*(Pi/(3*Rdist)+1)/2-1 //position x pour DxRaw=1.044
+	variable Hpas=5/Np
+	Make/O/N=10 Epsilon=nan
+	variable dEpsilon=nan
+	variable i=0,CC1=0,CC2=0
+	variable j=0
+	variable jend=10
+	variable/G hmin=0
+	do
+
+		//Original calculation of the initial lubricant film thickness profile
+		Hu0Raw1=(Hcen+(2*Rb*1E-3*(4*Ph/(pi*Estar))^2)/(1+(pi/(2*abs(Dxraw)))^(2*pi)))*1E9 //Crook's approximation
+		Hu0Raw3=(Hcen+(2*Rb*1E-3*(4*Ph/(pi*Estar))^2)/(1+(2/(abs(Dxraw)))^(2*pi)))*1E9
+		Hu0Raw4=(Hmin+(pi/(2+Xm))*(hcen-hmin)/(1+((Xm-2*(pi/3+X1))/(Dxraw))^(-9*pi)))*1E9
+		Hu0Raw5=(Hmin+(7/pi)*(hcen-hmin)/(1+(pi/(3*Dxraw))^(9*pi)))*1E9
+		Hu0Raw6=(1.1*hcen-0.1*hmin)*((1.1*hcen-0.1*hmin)/2+(2*Rb*1E-3*(4*Ph/(pi*Estar))^2)/(1+(pi/(2*Dxraw))^(2*pi)))/(Hcen/2+(2*Rb*1E-3*(4*Ph/(pi*Estar))^2)/(1+(3/2)^(2*pi)))*1E9 //pi/3 = 1.04
+
+		i=0
+		do
+
+			Hu0Raw[i]=Hu0Raw1[i]
+			i+=1
+		while(DxRaw[i]<=0.1 && i<Np-1)
+
+
+		do
+			Hu0Raw[i]=Hu0Raw3[i]
+			i+=1
+		while(DxRaw[i]<=Xm-4*(pi/3+X1) && i<Np-1)
+
+		do
+			Hu0Raw[i]=Hu0Raw4[i]
+			i+=1
+		while(DxRaw[i]<=Xm && i<Np-1)
+		do
+			Hu0Raw[i]=Hu0Raw5[i]
+			i+=1
+		while((DxRaw[i]<-X1 || DxRaw[i]<=pi/(2+Xm)) && i<Np-1)//pi/3
+
+		do
+			Hu0Raw[i]=Hu0Raw6[i]
+			i+=1
+		while(i<Np)
+
+		// Profile continuity test around X=1.044=pi/(2+Xm) allows to find Hmin
+		CurveFit/Q/N line Hu0Raw(pi/(2+Xm)-Rdist/50,pi/(2+Xm)+Rdist/50) /X=DxRaw
+
+		Epsilon[j]=v_r2
+
+		if(j>0)
+			dEpsilon=Epsilon[j]-Epsilon[j-1]
+		else
+			dEpsilon=1
+		endif
+
+		Redimension/N=(j+2) Epsilon
+
+		j+=1
+		Hmin=hcen*((j-1)*Hpas)
+	while(dEpsilon>=0 && Hmin<hcen)// && hcen>hmin)// && j!=1/Hpas) //diff<5%
+
+	if(Hsmth)
+		smooth Nsmth,Hu0raw //Smooth discontinuities
+	endif
+	ResumeUpdate
+end
+
+
+Function Decnum(x) //Round the last decimal to the next even integer 
+
+	variable x
+
+	variable i
+	do
+		i+=1
+	while(10^i*x-floor(10^i*x)!=0)
+
+	if(mod(10^i*x,2)==0)
+		return x
+	else
+		return (10^i*x+1)/10^i
+	endif
+
+
+end
+
+
+
+Macro WinWaterfall() //Waterfalls
+	variable profMin,profMax
+	If(hideit && watf)
+		profMin=nmin*tau/deltat
+		profMax=nmax*tau/deltat
+	else
+		profMin=0
+		profMax=Nt-1
+	endif
+	Concatenate/O {$HNames[profMin],$HNames[profMin+1]}, WFall0
+	variable j=profMin+2
+	do
+		Concatenate/O {WFall0,$HNames[j]}, WFall
+		Duplicate/O WFall,WFall0
+		j+=1
+	while(j<profMax-1)
+	
+	duplicate /O wfall,Twfall
+	MatrixTranspose twfall
+	ImWaterF()
+end
+
+
+Function erfi(a) //Erfi function
+	variable a
+	return (2/sqrt(pi))*exp(a^2)*Dawson(a)
+	//return exp(a^2)*Imag(Faddeeva(a))
+end
+
+Function Crook(w,X) : FitFunc
+	Wave w
+	Variable X
+
+	return w[0]*(-X-1)^(3/2)
+End
+
+
+Function RGBColor(x,m,RGB)
+
+	wave RGB
+	variable x,m
+	variable maxi=2^16-1
+	variable pas=(m-1)/6
+	
+	if(x>=0 && x<pas)
+		variable R=maxi
+	elseif(x>=pas && x<2*pas)
+		R=2*maxi-x*maxi/pas
+	else
+		R=0
+	endif
+	
+	if(x>=0 && x<pas)
+		variable G=x*maxi/pas
+	elseif(x>=pas && x<3*pas)
+		G=maxi
+	elseif(x>=3*pas && x<4*pas)
+		G=4*maxi-x*maxi/pas
+	else
+		G=0
+	endif
+	
+	if(x>=0 && x<2*pas)
+		variable B=0
+	elseif(x>=2*pas && x<3*pas)
+		B=x*maxi/pas-2*maxi
+	elseif(x>=3*pas && x<5*pas)
+		B=maxi
+	else
+		B=6*maxi-x*maxi/pas
+	endif
+	
+	
+	RGB[0]=R
+	RGB[1]=G
+	RGB[2]=B
+
+end
+
+
+
+/////////////////////////////////Windows and panel definitions///////////////////////////////////////////////
+
+Window IssyOsborne() : Panel
+	PauseUpdate; Silent 1		// building window...
+	NewPanel  /K=2/W=(1758,81,2775,575)
+	SetDrawLayer UserBack
+	DrawText 17,479,"IssyOsborne v1.0"
+	SetVariable setvar0,pos={18.00,70.00},size={175.00,18.00},disable=1,proc=SetVarProc_4,title="Ball radius (mm) "
+	SetVariable setvar0,userdata(ResizeControlsInfo)= A"!!,BI!!#?E!!#A>!!#<Hz!!#](Aon\"Qzzzzzzzzzzzzzz!!#](Aon\"Qzz"
+	SetVariable setvar0,userdata(ResizeControlsInfo) += A"zzzzzzzzzzzz!!#u:Du]k<zzzzzzzzzzz"
+	SetVariable setvar0,userdata(ResizeControlsInfo) += A"zzz!!#u:Du]k<zzzzzzzzzzzzzz!!!"
+	SetVariable setvar0,fSize=12,limits={0,inf,0.1},value= Rb
+	SetVariable setvar2,pos={74.00,159.00},size={155.00,18.00},disable=1,proc=SetVarProc_10,title="Viscosity (Pa∙s) "
+	SetVariable setvar2,userdata(ResizeControlsInfo)= A"!!,EN!!#A.!!#A*!!#<Hz!!#](Aon\"Qzzzzzzzzzzzzzz!!#](Aon\"Qzz"
+	SetVariable setvar2,userdata(ResizeControlsInfo) += A"zzzzzzzzzzzz!!#u:Du]k<zzzzzzzzzzz"
+	SetVariable setvar2,userdata(ResizeControlsInfo) += A"zzz!!#u:Du]k<zzzzzzzzzzzzzz!!!"
+	SetVariable setvar2,fSize=12,limits={0,inf,0.1},value= eta0
+	SetVariable setvar3,pos={37.00,182.00},size={192.00,18.00},disable=1,proc=SetVarProc_11,title="Piezoviscosity (1/GPa) "
+	SetVariable setvar3,userdata(ResizeControlsInfo)= A"!!,D#!!#AE!!#AO!!#<Hz!!#](Aon\"Qzzzzzzzzzzzzzz!!#](Aon\"Qzz"
+	SetVariable setvar3,userdata(ResizeControlsInfo) += A"zzzzzzzzzzzz!!#u:Du]k<zzzzzzzzzzz"
+	SetVariable setvar3,userdata(ResizeControlsInfo) += A"zzz!!#u:Du]k<zzzzzzzzzzzzzz!!!"
+	SetVariable setvar3,fSize=12,limits={0,inf,0.1},value= alpha
+	SetVariable setvar4,pos={19.00,37.00},size={225.00,18.00},disable=2,proc=SetVarProc_2,title="Velocity amplitude (mm/s) "
+	SetVariable setvar4,userdata(ResizeControlsInfo)= A"!!,BQ!!#>\"!!#Ap!!#<Hz!!#](Aon\"Qzzzzzzzzzzzzzz!!#](Aon\"Qzz"
+	SetVariable setvar4,userdata(ResizeControlsInfo) += A"zzzzzzzzzzzz!!#u:Du]k<zzzzzzzzzzz"
+	SetVariable setvar4,userdata(ResizeControlsInfo) += A"zzz!!#u:Du]k<zzzzzzzzzzzzzz!!!"
+	SetVariable setvar4,fSize=12,limits={0,inf,0.1},value= u0
+	SetVariable setvar5,pos={45.00,60.00},size={199.00,18.00},disable=2,proc=SetVarProc_3,title="Acceleration time \\f02τ\\f00 (s) "
+	SetVariable setvar5,userdata(ResizeControlsInfo)= A"!!,G!!!#?)!!#@*!!#<Hz!!#](Aon\"Qzzzzzzzzzzzzzz!!#](Aon\"Qzz"
+	SetVariable setvar5,userdata(ResizeControlsInfo) += A"zzzzzzzzzzzz!!#u:Du]k<zzzzzzzzzzz"
+	SetVariable setvar5,userdata(ResizeControlsInfo) += A"zzz!!#u:Du]k<zzzzzzzzzzzzzz!!!"
+	SetVariable setvar5,fSize=12,limits={0,inf,0.001},value= tau
+	SetVariable setvar6,pos={75.00,199.00},size={162.00,18.00},title="Time step (s) "
+	SetVariable setvar6,help={"Time step"}
+	SetVariable setvar6,userdata(ResizeControlsInfo)= A"!!,EP!!#AV!!#A1!!#<Hz!!#](Aon\"Qzzzzzzzzzzzzzz!!#](Aon\"Qzz"
+	SetVariable setvar6,userdata(ResizeControlsInfo) += A"zzzzzzzzzzzz!!#u:Du]k<zzzzzzzzzzz"
+	SetVariable setvar6,userdata(ResizeControlsInfo) += A"zzz!!#u:Du]k<zzzzzzzzzzzzzz!!!"
+	SetVariable setvar6,fSize=12,limits={0,inf,0.001},value= deltat
+	SetVariable setvar7,pos={28.00,176.00},size={209.00,18.00},title="Decelerations/Accelerations"
+	SetVariable setvar7,help={"Accelerations/Decelerations number"}
+	SetVariable setvar7,userdata(ResizeControlsInfo)= A"!!,CD!!#A?!!#A`!!#<Hz!!#](Aon\"Qzzzzzzzzzzzzzz!!#](Aon\"Qzz"
+	SetVariable setvar7,userdata(ResizeControlsInfo) += A"zzzzzzzzzzzz!!#u:Du]k<zzzzzzzzzzz"
+	SetVariable setvar7,userdata(ResizeControlsInfo) += A"zzz!!#u:Du]k<zzzzzzzzzzzzzz!!!"
+	SetVariable setvar7,fSize=12,limits={1,inf,1},value= ntau
+	Button button0,pos={295.00,72.00},size={69.00,32.00},proc=ButtonProc,title="Start"
+	Button button0,help={"Launch the film thickness algorithm"}
+	Button button0,userdata(ResizeControlsInfo)= A"!!,HNJ,hot!!#?C!!#=cz!!#](Aon\"Qzzzzzzzzzzzzzz!!#](Aon\"Qzz"
+	Button button0,userdata(ResizeControlsInfo) += A"zzzzzzzzzzzz!!#u:Du]k<zzzzzzzzzzz"
+	Button button0,userdata(ResizeControlsInfo) += A"zzz!!#u:Du]k<zzzzzzzzzzzzzz!!!"
+	Button button0,fColor=(52428,1,1)
+	ValDisplay valdisp4,pos={112.00,231.00},size={110.00,17.00},title="\\f02t\\f00\\Bend\\M (s)"
+	ValDisplay valdisp4,userdata(ResizeControlsInfo)= A"!!,FE!!#B!!!#@@!!#<@z!!#](Aon\"Qzzzzzzzzzzzzzz!!#](Aon\"Qzz"
+	ValDisplay valdisp4,userdata(ResizeControlsInfo) += A"zzzzzzzzzzzz!!#u:Du]k<zzzzzzzzzzz"
+	ValDisplay valdisp4,userdata(ResizeControlsInfo) += A"zzz!!#u:Du]k<zzzzzzzzzzzzzz!!!"
+	ValDisplay valdisp4,fSize=12,limits={0,0,0},barmisc={0,1000},value= #"ntau*tau"
+	SetVariable setvar8,pos={315.00,154.00},size={52.00,14.00},title="to"
+	SetVariable setvar8,userdata(ResizeControlsInfo)= A"!!,HT!!#B#!!#>^!!#;mz!!#](Aon\"Qzzzzzzzzzzzzzz!!#](Aon\"Qzz"
+	SetVariable setvar8,userdata(ResizeControlsInfo) += A"zzzzzzzzzzzz!!#u:Du]k<zzzzzzzzzzz"
+	SetVariable setvar8,userdata(ResizeControlsInfo) += A"zzz!!#u:Du]k<zzzzzzzzzzzzzz!!!"
+	SetVariable setvar8,limits={0,inf,1},value= nmax
+	SetVariable setvar9,pos={302.00,136.00},size={65.00,14.00},title="From"
+	SetVariable setvar9,userdata(ResizeControlsInfo)= A"!!,HMJ,hr<!!#?;!!#;mz!!#](Aon\"Qzzzzzzzzzzzzzz!!#](Aon\"Qzz"
+	SetVariable setvar9,userdata(ResizeControlsInfo) += A"zzzzzzzzzzzz!!#u:Du]k<zzzzzzzzzzz"
+	SetVariable setvar9,userdata(ResizeControlsInfo) += A"zzz!!#u:Du]k<zzzzzzzzzzzzzz!!!"
+	SetVariable setvar9,limits={0,inf,1},value= nmin
+	TitleBox title0,pos={274.00,119.00},size={57.00,11.00},title="Curves range"
+	TitleBox title0,userdata(ResizeControlsInfo)= A"!!,H?J,hr+!!#>r!!#;=z!!#](Aon\"Qzzzzzzzzzzzzzz!!#](Aon\"Qzz"
+	TitleBox title0,userdata(ResizeControlsInfo) += A"zzzzzzzzzzzz!!#u:Du]k<zzzzzzzzzzz"
+	TitleBox title0,userdata(ResizeControlsInfo) += A"zzz!!#u:Du]k<zzzzzzzzzzzzzz!!!"
+	TitleBox title0,frame=0
+	CheckBox check0,pos={336.00,115.00},size={15.00,16.00},proc=CheckProc,title=""
+	CheckBox check0,userdata(ResizeControlsInfo)= A"!!,H^J,hr'!!#<(!!#<8z!!#](Aon\"Qzzzzzzzzzzzzzz!!#](Aon\"Qzz"
+	CheckBox check0,userdata(ResizeControlsInfo) += A"zzzzzzzzzzzz!!#u:Du]k<zzzzzzzzzzz"
+	CheckBox check0,userdata(ResizeControlsInfo) += A"zzz!!#u:Du]k<zzzzzzzzzzzzzz!!!"
+	CheckBox check0,variable= hideit
+	SetVariable setvar10,pos={89.00,113.00},size={148.00,18.00},proc=SetVarProc,title="Frequency (Hz)"
+	SetVariable setvar10,userdata(ResizeControlsInfo)= A"!!,El!!#@F!!#A#!!#<Hz!!#](Aon\"Qzzzzzzzzzzzzzz!!#](Aon\"Qzz"
+	SetVariable setvar10,userdata(ResizeControlsInfo) += A"zzzzzzzzzzzz!!#u:Du]k<zzzzzzzzzzz"
+	SetVariable setvar10,userdata(ResizeControlsInfo) += A"zzz!!#u:Du]k<zzzzzzzzzzzzzz!!!"
+	SetVariable setvar10,fSize=12,limits={0,inf,1},value= Freq
+	SetVariable setvar11,pos={105.00,139.00},size={132.00,18.00},proc=SetVarProc_1,title="Stroke (mm)"
+	SetVariable setvar11,userdata(ResizeControlsInfo)= A"!!,F7!!#@o!!#@h!!#<Hz!!#](Aon\"Qzzzzzzzzzzzzzz!!#](Aon\"Qzz"
+	SetVariable setvar11,userdata(ResizeControlsInfo) += A"zzzzzzzzzzzz!!#u:Du]k<zzzzzzzzzzz"
+	SetVariable setvar11,userdata(ResizeControlsInfo) += A"zzz!!#u:Du]k<zzzzzzzzzzzzzz!!!"
+	SetVariable setvar11,fSize=12,limits={0,inf,0.1},value= Strk
+	CheckBox check1,pos={106.00,90.00},size={113.00,16.00},proc=CheckProc_1,title="Frequency mode"
+	CheckBox check1,userdata(ResizeControlsInfo)= A"!!,F9!!#?m!!#@F!!#<8z!!#](Aon\"Qzzzzzzzzzzzzzz!!#](Aon\"Qzz"
+	CheckBox check1,userdata(ResizeControlsInfo) += A"zzzzzzzzzzzz!!#u:Du]k<zzzzzzzzzzz"
+	CheckBox check1,userdata(ResizeControlsInfo) += A"zzz!!#u:Du]k<zzzzzzzzzzzzzz!!!"
+	CheckBox check1,fSize=12,variable= Check1
+	Button button1,pos={334.00,328.00},size={50.00,20.00},proc=ButtonProc_1,title="Quit"
+	Button button1,userdata(ResizeControlsInfo)= A"!!,Hg!!#B^!!#>V!!#<Xz!!#](Aon\"Qzzzzzzzzzzzzzz!!#](Aon\"Qzz"
+	Button button1,userdata(ResizeControlsInfo) += A"zzzzzzzzzzzz!!#u:Du]k<zzzzzzzzzzz"
+	Button button1,userdata(ResizeControlsInfo) += A"zzz!!#u:Du]k<zzzzzzzzzzzzzz!!!"
+	TabControl tab0,pos={11.00,6.00},size={382.00,309.00},proc=TabProc
+	TabControl tab0,userdata(ResizeControlsInfo)= A"!!,A.!!#:\"!!#C$!!#BTJ,fQL!!#](Aon\"Qzzzzzzzzzzzzzz!!#](Aon\"Qzz"
+	TabControl tab0,userdata(ResizeControlsInfo) += A"zzzzzzzzzzzz!!#u:Du]k<zzzzzzzzzzz"
+	TabControl tab0,userdata(ResizeControlsInfo) += A"zzz!!#u:Du]k<zzzzzzzzzzzzzz!!!"
+	TabControl tab0,tabLabel(0)="Main settings",tabLabel(1)="Input profile",value= 0
+	SetVariable setvar05,pos={148.00,122.00},size={81.00,20.00},disable=1,proc=SetVarProc_9,title="\\f02v\\f00\\Bflat"
+	SetVariable setvar05,userdata(ResizeControlsInfo)= A"!!,G$!!#@X!!#?[!!#<Xz!!#](Aon\"Qzzzzzzzzzzzzzz!!#](Aon\"Qzz"
+	SetVariable setvar05,userdata(ResizeControlsInfo) += A"zzzzzzzzzzzz!!#u:Du]k<zzzzzzzzzzz"
+	SetVariable setvar05,userdata(ResizeControlsInfo) += A"zzz!!#u:Du]k<zzzzzzzzzzzzzz!!!"
+	SetVariable setvar05,fSize=12,value= nuplan
+	SetVariable setvar04,pos={148.00,97.00},size={81.00,20.00},disable=1,proc=SetVarProc_7,title="\\f02v\\f00\\Bball"
+	SetVariable setvar04,userdata(ResizeControlsInfo)= A"!!,G$!!#@&!!#?[!!#<Xz!!#](Aon\"Qzzzzzzzzzzzzzz!!#](Aon\"Qzz"
+	SetVariable setvar04,userdata(ResizeControlsInfo) += A"zzzzzzzzzzzz!!#u:Du]k<zzzzzzzzzzz"
+	SetVariable setvar04,userdata(ResizeControlsInfo) += A"zzz!!#u:Du]k<zzzzzzzzzzzzzz!!!"
+	SetVariable setvar04,fSize=12,value= nubille
+	SetVariable setvar01,pos={18.00,97.00},size={124.00,20.00},disable=1,proc=SetVarProc_6,title="\\f02E\\f00\\Bball\\M (GPa)"
+	SetVariable setvar01,userdata(ResizeControlsInfo)= A"!!,BI!!#@&!!#@\\!!#<Xz!!#](Aon\"Qzzzzzzzzzzzzzz!!#](Aon\"Qzz"
+	SetVariable setvar01,userdata(ResizeControlsInfo) += A"zzzzzzzzzzzz!!#u:Du]k<zzzzzzzzzzz"
+	SetVariable setvar01,userdata(ResizeControlsInfo) += A"zzz!!#u:Du]k<zzzzzzzzzzzzzz!!!"
+	SetVariable setvar01,fSize=12,value= Ebille
+	SetVariable setvar02,pos={17.00,124.00},size={125.00,20.00},disable=1,proc=SetVarProc_8,title="\\f02E\\f00\\Bflat\\M (GPa)"
+	SetVariable setvar02,userdata(ResizeControlsInfo)= A"!!,BA!!#@\\!!#@^!!#<Xz!!#](Aon\"Qzzzzzzzzzzzzzz!!#](Aon\"Qzz"
+	SetVariable setvar02,userdata(ResizeControlsInfo) += A"zzzzzzzzzzzz!!#u:Du]k<zzzzzzzzzzz"
+	SetVariable setvar02,userdata(ResizeControlsInfo) += A"zzz!!#u:Du]k<zzzzzzzzzzzzzz!!!"
+	SetVariable setvar02,fSize=12,value= Eplan
+	SetVariable setvar07,pos={207.00,70.00},size={102.00,18.00},disable=1,proc=SetVarProc_5,title="Load (N)"
+	SetVariable setvar07,userdata(ResizeControlsInfo)= A"!!,G_!!#?E!!#?e!!#<Hz!!#](Aon\"Qzzzzzzzzzzzzzz!!#](Aon\"Qzz"
+	SetVariable setvar07,userdata(ResizeControlsInfo) += A"zzzzzzzzzzzz!!#u:Du]k<zzzzzzzzzzz"
+	SetVariable setvar07,userdata(ResizeControlsInfo) += A"zzz!!#u:Du]k<zzzzzzzzzzzzzz!!!"
+	SetVariable setvar07,fSize=12,limits={0,inf,1},value= Fn
+	ValDisplay valdisp0,pos={207.00,294.00},size={176.00,17.00},disable=1,title="Contact radius (μm)"
+	ValDisplay valdisp0,userdata(ResizeControlsInfo)= A"!!,GV!!#BM!!#AH!!#<@z!!#](Aon\"Qzzzzzzzzzzzzzz!!#](Aon\"Qzz"
+	ValDisplay valdisp0,userdata(ResizeControlsInfo) += A"zzzzzzzzzzzz!!#u:Du]k<zzzzzzzzzzz"
+	ValDisplay valdisp0,userdata(ResizeControlsInfo) += A"zzz!!#u:Du]k<zzzzzzzzzzzzzz!!!"
+	ValDisplay valdisp0,fSize=12,format="%.3f",frame=5
+	ValDisplay valdisp0,limits={0,0,0},barmisc={0,1000},value= #"b"
+	Button button2,pos={283.00,124.00},size={83.00,40.00},disable=1,proc=ButtonProc_2,title="Calculation"
+	Button button2,userdata(ResizeControlsInfo)= A"!!,HHJ,hq2!!#?_!!#>.z!!#](Aon\"Qzzzzzzzzzzzzzz!!#](Aon\"Qzz"
+	Button button2,userdata(ResizeControlsInfo) += A"zzzzzzzzzzzz!!#u:Du]k<zzzzzzzzzzz"
+	Button button2,userdata(ResizeControlsInfo) += A"zzz!!#u:Du]k<zzzzzzzzzzzzzz!!!"
+	Button button2,fColor=(52428,52425,1)
+	SetVariable setvar1,pos={284.00,172.00},size={95.00,14.00},disable=1,proc=SetVarProc_12,title="Size (points)"
+	SetVariable setvar1,userdata(ResizeControlsInfo)= A"!!,HI!!#A;!!#@\"!!#;mz!!#](Aon\"Qzzzzzzzzzzzzzz!!#](Aon\"Qzz"
+	SetVariable setvar1,userdata(ResizeControlsInfo) += A"zzzzzzzzzzzz!!#u:Du]k<zzzzzzzzzzz"
+	SetVariable setvar1,userdata(ResizeControlsInfo) += A"zzz!!#u:Du]k<zzzzzzzzzzzzzz!!!"
+	SetVariable setvar1,value= Np
+	CheckBox check4,pos={13.00,325.00},size={145.00,16.00},proc=CheckProc_2,title="Auto. calculated initial profile"
+	CheckBox check4,userdata(ResizeControlsInfo)= A"!!,An!!#B\\J,hp9!!#<8z!!#](Aon\"Qzzzzzzzzzzzzzz!!#](Aon\"Qzz"
+	CheckBox check4,userdata(ResizeControlsInfo) += A"zzzzzzzzzzzz!!#u:Du]k<zzzzzzzzzzz"
+	CheckBox check4,userdata(ResizeControlsInfo) += A"zzz!!#u:Du]k<zzzzzzzzzzzzzz!!!"
+	CheckBox check4,variable= AutoProf
+	SetVariable setvar12,pos={289.00,191.00},size={90.00,14.00},disable=1,proc=SetVarProc_13,title="Interval +/-"
+	SetVariable setvar12,userdata(ResizeControlsInfo)= A"!!,HKJ,hr$!!#?m!!#;mz!!#](Aon\"Qzzzzzzzzzzzzzz!!#](Aon\"Qzz"
+	SetVariable setvar12,userdata(ResizeControlsInfo) += A"zzzzzzzzzzzz!!#u:Du]k<zzzzzzzzzzz"
+	SetVariable setvar12,userdata(ResizeControlsInfo) += A"zzz!!#u:Du]k<zzzzzzzzzzzzzz!!!"
+	SetVariable setvar12,value= Rdist
+	ValDisplay valdisp1,pos={281.00,271.00},size={102.00,17.00},disable=1,title="\\f02h\\f00\\Bmin\\M (nm)"
+	ValDisplay valdisp1,userdata(ResizeControlsInfo)= A"!!,H=J,hrlJ,hq.!!#<@z!!#](Aon\"Qzzzzzzzzzzzzzz!!#](Aon\"Qzz"
+	ValDisplay valdisp1,userdata(ResizeControlsInfo) += A"zzzzzzzzzzzz!!#u:Du]k<zzzzzzzzzzz"
+	ValDisplay valdisp1,userdata(ResizeControlsInfo) += A"zzz!!#u:Du]k<zzzzzzzzzzzzzz!!!"
+	ValDisplay valdisp1,fSize=12,format="%.1f",frame=5
+	ValDisplay valdisp1,limits={0,0,0},barmisc={0,1000},value= #"Hmin*1E9"
+	ValDisplay valdisp2,pos={270.00,249.00},size={113.00,17.00},disable=1,title="\\f02h\\f00(0,0) (nm)"
+	ValDisplay valdisp2,userdata(ResizeControlsInfo)= A"!!,HE!!#B3!!#@:!!#<@z!!#](Aon\"Qzzzzzzzzzzzzzz!!#](Aon\"Qzz"
+	ValDisplay valdisp2,userdata(ResizeControlsInfo) += A"zzzzzzzzzzzz!!#u:Du]k<zzzzzzzzzzz"
+	ValDisplay valdisp2,userdata(ResizeControlsInfo) += A"zzz!!#u:Du]k<zzzzzzzzzzzzzz!!!"
+	ValDisplay valdisp2,fSize=12,format="%.1f",frame=5
+	ValDisplay valdisp2,limits={0,0,0},barmisc={0,1000},value= #"Hcen*1E9"
+	CheckBox check5,pos={257.00,209.00},size={81.00,16.00},disable=1,title="Smooth profile"
+	CheckBox check5,userdata(ResizeControlsInfo)= A"!!,H;J,hr6!!#?[!!#<8z!!#](Aon\"Qzzzzzzzzzzzzzz!!#](Aon\"Qzz"
+	CheckBox check5,userdata(ResizeControlsInfo) += A"zzzzzzzzzzzz!!#u:Du]k<zzzzzzzzzzz"
+	CheckBox check5,userdata(ResizeControlsInfo) += A"zzz!!#u:Du]k<zzzzzzzzzzzzzz!!!"
+	CheckBox check5,variable= Hsmth
+	SetVariable setvar13,pos={345.00,210.00},size={34.00,14.00},disable=1,title=" "
+	SetVariable setvar13,userdata(ResizeControlsInfo)= A"!!,HgJ,hr7!!#=k!!#;mz!!#](Aon\"Qzzzzzzzzzzzzzz!!#](Aon\"Qzz"
+	SetVariable setvar13,userdata(ResizeControlsInfo) += A"zzzzzzzzzzzz!!#u:Du]k<zzzzzzzzzzz"
+	SetVariable setvar13,userdata(ResizeControlsInfo) += A"zzz!!#u:Du]k<zzzzzzzzzzzzzz!!!"
+	SetVariable setvar13,value= Nsmth
+	ValDisplay valdisp3,pos={27.00,217.00},size={186.00,17.00},disable=1,title="Hersey number"
+	ValDisplay valdisp3,userdata(ResizeControlsInfo)= A"!!,C<!!#Ah!!#AI!!#<@z!!#](Aon\"Qzzzzzzzzzzzzzz!!#](Aon\"Qzz"
+	ValDisplay valdisp3,userdata(ResizeControlsInfo) += A"zzzzzzzzzzzz!!#u:Du]k<zzzzzzzzzzz"
+	ValDisplay valdisp3,userdata(ResizeControlsInfo) += A"zzz!!#u:Du]k<zzzzzzzzzzzzzz!!!"
+	ValDisplay valdisp3,fSize=12,limits={0,0,0},barmisc={0,1000},value= #"NH"
+	CheckBox check6,pos={22.00,238.00},size={120.00,16.00},disable=1,proc=CheckProc_3,title="Roughness dependance"
+	CheckBox check6,userdata(ResizeControlsInfo)= A"!!,CL!!#B)!!#@T!!#<8z!!#](Aon\"Qzzzzzzzzzzzzzz!!#](Aon\"Qzz"
+	CheckBox check6,userdata(ResizeControlsInfo) += A"zzzzzzzzzzzz!!#u:Du]k<zzzzzzzzzzz"
+	CheckBox check6,userdata(ResizeControlsInfo) += A"zzz!!#u:Du]k<zzzzzzzzzzzzzz!!!"
+	CheckBox check6,variable= HerseyRstar
+	SetVariable setvar14,pos={149.00,240.00},size={76.00,16.00},disable=1,proc=SetVarProc_14,title="\\f02 R*\\f00\\Ba (nm)"
+	SetVariable setvar14,userdata(ResizeControlsInfo)= A"!!,G%!!#B*!!#?Q!!#<8z!!#](Aon\"Qzzzzzzzzzzzzzz!!#](Aon\"Qzz"
+	SetVariable setvar14,userdata(ResizeControlsInfo) += A"zzzzzzzzzzzz!!#u:Du]k<zzzzzzzzzzz"
+	SetVariable setvar14,userdata(ResizeControlsInfo) += A"zzz!!#u:Du]k<zzzzzzzzzzzzzz!!!"
+	SetVariable setvar14,value= Rstar
+	ValDisplay valdisp5,pos={40.00,260.00},size={192.00,13.00},disable=1,title="Transition Hersey number "
+	ValDisplay valdisp5,userdata(ResizeControlsInfo)= A"!!,D/!!#B<!!#A<!!#;]z!!#](Aon\"Qzzzzzzzzzzzzzz!!#](Aon\"Qzz"
+	ValDisplay valdisp5,userdata(ResizeControlsInfo) += A"zzzzzzzzzzzz!!#u:Du]k<zzzzzzzzzzz"
+	ValDisplay valdisp5,userdata(ResizeControlsInfo) += A"zzz!!#u:Du]k<zzzzzzzzzzzzzz!!!"
+	ValDisplay valdisp5,frame=5,limits={0,0,0},barmisc={0,1000},value= #"NHlimit"
+	TitleBox title1,pos={242.00,260.00},size={50.00,20.00},disable=1
+	TitleBox title2,pos={302.00,260.00},size={50.00,20.00},disable=1
+	Button button3,pos={334.00,368.00},size={50.00,20.00},proc=ButtonProc_3,title="Help"
+	ToolsGrid snap=1,visible=1,grid=(0,28.35,5)
+	SetWindow kwTopWin,userdata(ResizeControlsInfo)= A"!!*'\"z!!#Do!!#CIJ,fQLzzzzzzzzzzzzzzzzzzzz"
+	SetWindow kwTopWin,userdata(ResizeControlsInfo) += A"zzzzzzzzzzzzzzzzzzzzzzzzz"
+	SetWindow kwTopWin,userdata(ResizeControlsInfo) += A"zzzzzzzzzzzzzzzzzzz!!!"
+	SetWindow kwTopWin,userdata(ResizeControlsHookStash)=  "ResizeControls#ResizeControlsHook"
+	Display/W=(679,17,991,229)/HOST=# /HIDE=1  Hu0Raw vs DxRaw
+	ModifyGraph fSize=14
+	Label left "Profile, \\f02h\\f00(\\f02x\\f00,0) (nm)"
+	Label bottom "Relative distance, \\f02x\\f00/\\f02a\\f00"
+	SetAxis left 0,*
+	RenameWindow #,Initial_Profile
+	SetActiveSubwindow ##
+	Edit/W=(399,16,651,313)/HOST=# /HIDE=1 Hu0Raw,DxRaw
+	ModifyTable format(Point)=1,title(Hu0Raw)="h(x,0)",title(DxRaw)="X"
+	RenameWindow #,T0
+	SetActiveSubwindow ##
+	Display/W=(400,250,700,480)/HOST=#  Ut vs temps
+	ModifyGraph mode=3
+	ModifyGraph marker=8
+	ModifyGraph rgb=(0,0,0)
+	ModifyGraph grid(left)=1
+	ModifyGraph zero(left)=8
+	ModifyGraph fSize=14
+	ModifyGraph lowTrip(bottom)=0.001
+	ModifyGraph gridRGB(left)=(61166,61166,61166)
+	Label left "Velocity, \\f02u\\f00(\\f02t\\f00) (mm/s)"
+	Label bottom "Time, \\f02t\\f00 (s)"
+	RenameWindow #,Velocity
+	SetActiveSubwindow ##
+	Display/W=(400,18,700,240)/HOST=#  H0 vs Dx
+	AppendToGraph H1,H2,H3,H4,H5,H6,H7,H8
+	AppendToGraph H9,H10,H11,H12,H13,H14,H15,H16
+	AppendToGraph H17,H18,H19
+	ModifyGraph rgb(H0)=(0,0,65535),rgb(H1)=(0,19817,65535),rgb(H2)=(0,39635,65535)
+	ModifyGraph rgb(H3)=(0,59453,65535),rgb(H4)=(0,65535,51798),rgb(H5)=(0,65535,31981)
+	ModifyGraph rgb(H6)=(0,65535,12163),rgb(H7)=(7654,65535,0),rgb(H8)=(27472,65535,0)
+	ModifyGraph rgb(H9)=(47290,65535,0),rgb(H10)=(65535,63962,0),rgb(H11)=(65535,44144,0)
+	ModifyGraph rgb(H12)=(65535,24326,0),rgb(H13)=(65535,4508,0),rgb(H17)=(56307,0,0)
+	ModifyGraph rgb(H18)=(36489,0,0),rgb(H19)=(16672,0,0)
+	ModifyGraph fSize=14
+	Label left "Profiles, \\f02h\\f00(\\f02x,t\\f00)"
+	Label bottom "Relative distance, \\f02X = x\\f00/\\f02a\\f00"
+	RenameWindow #,Profiles
+	SetActiveSubwindow ##
+	Display/W=(710,18,1000,240)/HOST=#  Hcentre vs temps
+	ModifyGraph mode=3
+	ModifyGraph marker=19
+	ModifyGraph fSize=14
+	ModifyGraph lowTrip=0.001
+	Label left "Central thickness, \\f02h\\f00(0,\\f02t\\f00) (nm)"
+	Label bottom "Time (s)"
+	RenameWindow #,Central_Thickness
+	SetActiveSubwindow ##
+	Display/W=(710,250,1000,480)/HOST=# 
+	AppendImage/T Twfall
+	ModifyImage Twfall ctab= {*,*,Rainbow,1}
+	ModifyImage Twfall ctabAutoscale=3
+	ModifyImage Twfall log= 1
+	ModifyGraph mirror=0
+	ModifyGraph fSize=14
+	ModifyGraph axisEnab(top)={0,0.8}
+	Label left "Relative distance, \\f02X\\f00"
+	Label top "Profile number"
+	ColorScale/C/N=text0/F=0/B=1/A=RT/X=-15.00 image=Twfall
+	AppendText "\\f02h\\f00 (nm)"
+	RenameWindow #,ImWaterF
+	SetActiveSubwindow ##
+EndMacro
+
+Macro Closeit()
+	Quit/N
+end
+
+Function ButtonProc(ba) : ButtonControl
+	STRUCT WMButtonAction &ba
+
+	switch( ba.eventCode )
+		case 2: // mouse up
+			Execute "main()"
+			break
+		case -1: // control being killed
+			break
+	endswitch
+
+	return 0
+End
+
+Function CheckProc(cba) : CheckBoxControl
+	STRUCT WMCheckboxAction &cba
+
+	if(cba.checked)
+		SetVariable setvar8 disable=0
+		SetVariable setvar9 disable=0
+	else
+		SetVariable setvar8 disable=2
+		SetVariable setvar9 disable=2
+	endif
+	
+
+	return 0
+End
+
+Window Profiles() : Graph
+	PauseUpdate; Silent 1		// building window...
+	Killwindow/Z IssyOsborne#Profiles
+	Display/HOST=IssyOsborne/N=Profiles/W=(400,18,700,240) H0 vs Dx
+	Label/W=IssyOsborne#Profiles bottom "Relative distance, \f02X = x\f00/\f02a\f00"
+	Label/W=IssyOsborne#Profiles left "Profiles, \f02h\f00(\f02x,t\f00)"
+	ModifyGraph/W=IssyOsborne#Profiles fSize=14
+EndMacro
+
+Window Central_Thickness() : Graph
+	PauseUpdate; Silent 1		// building window...
+	Killwindow/Z IssyOsborne#Central_Thickness
+	Display /HOST=IssyOsborne/N=Central_Thickness/W=(710,18,1000,240) Hcentre vs temps
+	ModifyGraph mode=3
+	ModifyGraph marker=19
+	ModifyGraph zColor(Hcentre)={TColor,*,*,Rainbow16}
+	ModifyGraph fSize=14
+	ModifyGraph lowTrip=0.001
+	Label left "Central thickness, \f02h\f00(0,\f02t\f00) (nm)"
+	Label bottom "Time, \f02t\f00 (s)"
+EndMacro
+
+Window Central_Thickness_() : Graph
+	PauseUpdate; Silent 1		// building window...
+	Killwindow/Z IssyOsborne#Central_Thickness
+	Display /HOST=IssyOsborne/N=Central_Thickness/W=(710,18,1000,240) Hcentre vs temps
+	ModifyGraph mode=3
+	ModifyGraph marker=19
+	ModifyGraph fSize=14
+	ModifyGraph lowTrip=0.001
+	Label left "Central thickness, \f02h\f00(0,\f02t\f00) (nm)"
+	Label bottom "Time (s)"
+EndMacro
+
+Window Velocity() : Graph
+	PauseUpdate; Silent 1		// building window...
+	Killwindow/Z IssyOsborne#Velocity
+	Display/Host=IssyOsborne/N=Velocity /W=(400,250,700,480) Ut vs temps
+	ModifyGraph mode=3
+	ModifyGraph marker=8
+	ModifyGraph rgb(Ut)=(0,0,0)
+	ModifyGraph fSize=14
+	ModifyGraph lowTrip(bottom)=0.001
+	Label left "Velocity, \\f02u\\f00(\\f02t\\f00) (mm/s)"
+	Label bottom "Time, \\f02t\\f00 (s)"
+EndMacro
+
+Window ImWaterF() : Graph
+	PauseUpdate; Silent 1		// building window...
+	Killwindow/Z IssyOsborne#ImWaterF
+	Display /HOST=IssyOsborne/N=ImWaterF /W=(710,250,1000,480)
+	AppendImage /W=IssyOsborne#ImWaterF /T Twfall
+	if(wavemin(Twfall))
+		ModifyImage /W=IssyOsborne#ImWaterF Twfall ctab= {*,*,Rainbow,1}
+	else
+		ModifyImage/W=IssyOsborne#ImWaterF Twfall ctab= {0.1,*,Rainbow,1}
+	endif
+	ModifyImage/W=IssyOsborne#ImWaterF Twfall log= 1
+	ModifyGraph/W=IssyOsborne#ImWaterF mirror=0
+	ModifyGraph/W=IssyOsborne#ImWaterF fSize=14
+	Label/W=IssyOsborne#ImWaterF left "Relative distance, \f02X\f00"
+	Label/W=IssyOsborne#ImWaterF top "Profile number"
+	legend/W=IssyOsborne#ImWaterF
+	ColorScale/W=IssyOsborne#ImWaterF/C/N=text0/F=0/B=1 image=Twfall
+	ModifyGraph/W=IssyOsborne#ImWaterF axisEnab(top)={0,0.8}
+	ColorScale/W=IssyOsborne#ImWaterF/C/N=text0 "\\f02h\\f00 (nm)"
+	ColorScale/W=IssyOsborne#ImWaterF/C/N=text0/X=-15/Y=5.00
+	ModifyImage/W=IssyOsborne#ImWaterF Twfall ctabAutoscale=3
+EndMacro
+
+Window ProfileGraph() : Graph
+	PauseUpdate; Silent 1	
+	Display/HOST=IssyOsborne/N=Initial_Profile/W=(600,18,900,220) Hu0Raw vs DxRaw
+	Label left "Profile, \\f02h\\f00(\\f02x\\f00,0) (nm)"
+	Label bottom "Relative distance, \\f02x\\f00/\\f02a\\f00"
+EndMacro
+
+Function ButtonProc_1(ba) : ButtonControl
+	STRUCT WMButtonAction &ba
+
+	switch( ba.eventCode )
+		case 2: // mouse up
+			// click code here
+			Execute "Closeit()"
+			break
+		case -1: // control being killed
+			break
+	endswitch
+
+	return 0
+End
+
+Window Input_profile() : Table
+	PauseUpdate; Silent 1		// building window...
+	Edit/W=(775,45,1023,362) Hu0Raw,DxRaw
+	ModifyTable format(Point)=1
+EndMacro
+
+
+Function Sig(w,x) : FitFunc
+	Wave w
+	Variable x
+
+	//CurveFitDialog/ These comments were created by the Curve Fitting dialog. Altering them will
+	//CurveFitDialog/ make the function less convenient to work with in the Curve Fitting dialog.
+	//CurveFitDialog/ Equation:
+	//CurveFitDialog/ f(x) = B/(C+exp(-A*x))
+	//CurveFitDialog/ End of Equation
+	//CurveFitDialog/ Independent Variables 1
+	//CurveFitDialog/ x
+	//CurveFitDialog/ Coefficients 3
+	//CurveFitDialog/ w[0] = A
+	//CurveFitDialog/ w[1] = B
+	//CurveFitDialog/ w[2] = C
+
+	return w[1]/(w[2]+exp(-w[0]*x))
+End
+
+Function SetVarProc_4(sva) : SetVariableControl
+	STRUCT WMSetVariableAction &sva
+	Nvar ChangeVal
+	if( sva.eventCode )
+		ChangeVal=1
+	endif
+
+	return 0
+End
+
+Function SetVarProc_5(sva) : SetVariableControl
+	STRUCT WMSetVariableAction &sva
+	Nvar  ChangeVal
+	if( sva.eventCode )
+		ChangeVal=1
+	endif
+
+	return 0
+End
+
+Function SetVarProc_6(sva) : SetVariableControl
+	STRUCT WMSetVariableAction &sva
+	Nvar ChangeVal
+	if( sva.eventCode )
+		ChangeVal=1
+	endif
+
+	return 0
+End
+
+Function SetVarProc_7(sva) : SetVariableControl
+	STRUCT WMSetVariableAction &sva
+
+	Nvar ChangeVal
+	if( sva.eventCode )
+		ChangeVal=1
+	endif
+
+	return 0
+End
+
+Function SetVarProc_8(sva) : SetVariableControl
+	STRUCT WMSetVariableAction &sva
+
+	Nvar ChangeVal
+	if( sva.eventCode )
+		ChangeVal=1
+	endif
+	return 0
+End
+
+Function SetVarProc_9(sva) : SetVariableControl
+	STRUCT WMSetVariableAction &sva
+
+	Nvar ChangeVal
+	if( sva.eventCode )
+		ChangeVal=1
+	endif
+
+	return 0
+End
+
+Function SetVarProc_10(sva) : SetVariableControl
+	STRUCT WMSetVariableAction &sva
+
+	Nvar ChangeVal
+	if( sva.eventCode )
+		ChangeVal=1
+	endif
+
+	return 0
+End
+
+Function SetVarProc_11(sva) : SetVariableControl
+	STRUCT WMSetVariableAction &sva
+
+	Nvar ChangeVal
+	if( sva.eventCode )
+		ChangeVal=1
+	endif
+
+	return 0
+End
+
+Function SetVarProc_12(sva) : SetVariableControl
+	STRUCT WMSetVariableAction &sva
+
+	Nvar ChangeVal
+	if( sva.eventCode )
+		ChangeVal=1
+	endif
+
+	return 0
+End
+
+Function SetVarProc_13(sva) : SetVariableControl
+	STRUCT WMSetVariableAction &sva
+
+	Nvar ChangeVal
+	if( sva.eventCode )
+		ChangeVal=1
+	endif
+
+	return 0
+End
+
+
+Function CheckProc_2(cba) : CheckBoxControl
+	STRUCT WMCheckboxAction &cba
+	Nvar checkact
+	if( cba.eventCode )
+
+		checkact=cba.checked
+	endif
+
+	return 0
+End
+
+
+
+
+Function SetVarProc_14(sva) : SetVariableControl
+	STRUCT WMSetVariableAction &sva
+	NVAR HerseyRstar,eta0,u0,Ph,Rstar,NHlimit,Freq
+	if( sva.dval )
+		if(HerseyRstar)
+			variable/G NH=eta0*u0*1E-3/(Ph*Rstar*1E-9)
+		else
+			variable/G NH=eta0*Freq/Ph
+		endif
+	endif
+
+	return 0
+End
+
+
+
+Function ButtonProc_2(ba) : ButtonControl
+	STRUCT WMButtonAction &ba
+	NVAR HerseyRstar,eta0,u0,Freq,Ph,Rstar
+	switch( ba.eventCode )
+		case 2: // mouse up
+			// click code here
+			Execute "profilCalc()"
+			if(HerseyRstar)
+				variable/G NH=eta0*u0*1E-3/(Ph*Rstar*1E-9) //NH limit 0.01
+			else
+				variable/G NH=eta0*Freq/Ph // NH limit 4E-8
+			endif
+			break
+		case -1: // control being killed
+			break
+	endswitch
+
+	return 0
+End
+
+Function SetVarProc_2(sva) : SetVariableControl
+	STRUCT WMSetVariableAction &sva
+
+	NVar u0,tau,freq,strk,check1,ChangeVal,deltat
+	
+	if( sva.dval && !check1)
+		ChangeVal=1
+		freq=u0/pi*strk
+		deltat=Decnum(tau/20)
+	endif
+
+	return 0
+End
+
+Function SetVarProc_3(sva) : SetVariableControl
+	STRUCT WMSetVariableAction &sva
+
+	NVar u0,tau,freq,strk,check1,deltat,ChangeVal
+	
+	if( sva.dval && !check1)
+		ChangeVal=1
+		freq=4*tau
+		strk=4*tau*pi/u0
+		deltat=tau*0.1
+	endif
+
+	return 0
+End
+
+Function CheckProc_1(cba) : CheckBoxControl
+	STRUCT WMCheckboxAction &cba
+	Nvar check1,U0,freq,strk,tau,deltat
+	if(cba.eventCode && !check1)
+		SetVariable setvar10 disable=2
+		SetVariable setvar11 disable=2
+		SetVariable setvar4 disable=0
+		SetVariable setvar5 disable=0
+		deltat=Decnum(tau/20)
+	endif
+
+	if(cba.eventCode && check1)
+		SetVariable setvar10 disable=0
+		SetVariable setvar11 disable=0
+		SetVariable setvar4 disable=2
+		SetVariable setvar5 disable=2
+		deltat=Decnum(tau/20)
+	endif
+
+
+	return 0
+End
+
+Function SetVarProc(sva) : SetVariableControl
+	STRUCT WMSetVariableAction &sva
+	NVar u0,tau,freq,strk,check1,deltat,ChangeVal
+	if( sva.dval && check1)
+		ChangeVal=1
+		u0=pi*freq*strk
+		tau=1/(4*freq)
+		deltat=Decnum(tau/20)
+	endif
+
+	return 0
+End
+
+Function SetVarProc_1(sva) : SetVariableControl
+	STRUCT WMSetVariableAction &sva
+
+	NVar u0,tau,freq,strk,check1,ChangeVal
+	if( sva.dval && check1)
+		ChangeVal=1
+		u0=pi*freq*strk
+		tau=1/(4*freq)
+	endif
+
+	return 0
+End
+
+Macro DataTab()
+
+	Edit/HOST=IssyOsborne/W=(100,100,100,100) Hu0Raw,DxRaw
+	//ModifyTable/W=IssyOsborne#T0 showParts=2,title(Hu0Raw)="H(X,0)",title(DxRaw)="X"
+
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Function TabProc(tca) : TabControl
+	STRUCT WMTabControlAction &tca
+	Nvar check1,hideit
+	wave Hu0Raw,DxRaw,Hnames
+	variable i,j
+		switch(tca.tab)	// numeric switch
+		case 1:	// execute if case matches expression
+		i=0
+		j=1	
+			SetVariable setvar5 disable=1
+			SetVariable setvar10 disable=1
+			SetVariable setvar11 disable=1
+		if(check1)
+		SetVariable setvar4 disable=2
+			
+			
+		else
+		SetVariable setvar4 disable=0
+		
+		endif
+		
+		
+					break		// exit from switch
+			default:			// optional default expression executed
+				i=1
+			j=0
+		
+					if(check1)
+		SetVariable setvar4 disable=2
+			SetVariable setvar5 disable=2
+			SetVariable setvar10 disable=0
+			SetVariable setvar11 disable=0
+		else
+		SetVariable setvar4 disable=0
+			SetVariable setvar5 disable=0
+			SetVariable setvar10 disable=2
+			SetVariable setvar11 disable=2
+		endif
+				// when no case matches
+	endswitch
+
+	SetVariable setvar1 disable=i
+		SetVariable setvar12 disable=i
+		SetVariable setvar01 disable=i
+		SetVariable setvar04 disable=i
+		SetVariable setvar02 disable=i
+		SetVariable setvar05 disable=i
+		SetVariable setvar07 disable=i
+		CheckBox check5 disable=i
+		SetVariable setvar13 disable=i
+		Button button2 disable=i
+		SetVariable setvar0 disable=i
+		SetVariable setvar2 disable=i
+		SetVariable setvar3 disable=i
+		ValDisplay valdisp0 disable=i
+		ValDisplay valdisp1 disable=i
+		ValDisplay valdisp2 disable=i
+		ValDisplay valdisp3 disable=i
+		CheckBox check6 disable=i
+		SetVariable setvar14 disable=i
+		ValDisplay valdisp5 disable=i
+		setwindow IssyOsborne#Initial_Profile hide=i
+		setwindow IssyOsborne#T0 hide=i
+		TitleBox title1 disable=i
+		TitleBox title2 disable=i
+		ValDisplay valdisp4 disable=j
+		SetVariable setvar7 disable=j
+		SetVariable setvar6 disable=j
+		SetVariable setvar9 disable=j
+		SetVariable setvar8 disable=j
+		CheckBox check1 disable=j		
+		TitleBox title0 disable=j
+		CheckBox check0 disable=j
+		Button button0 disable=j	
+		setwindow IssyOsborne#ImWaterF hide=j
+		setwindow IssyOsborne#Central_Thickness hide=j
+		setwindow IssyOsborne#Profiles hide=j
+		setwindow IssyOsborne#Velocity hide=j
+
+	return 0
+End
+
+Function CheckProc_3(cba) : CheckBoxControl
+	STRUCT WMCheckboxAction &cba
+	NVAR eta0,u0,Ph,Rstar,NHlimit,Freq
+	if(cba.checked)
+		SetVariable setvar14 disable=0
+		variable/G NH=eta0*u0*1E-3/(Ph*Rstar*1E-9) 
+		variable/G NHlimit=0.01
+	else
+		SetVariable setvar14 disable=1
+		variable/G NH=eta0*Freq/Ph 
+		variable/G NHlimit=5.06316e-08
+	endif
+	
+	return 0
+End
+
+
+
+Function ButtonProc_3(ba) : ButtonControl
+	STRUCT WMButtonAction &ba
+
+	switch( ba.eventCode )
+		case 2: // mouse up
+		setwindow Help hide=1
+			setwindow Help hide=0
+			Notebook Help changeableByCommandOnly=1
+			// click code here
+			break
+		case -1: // control being killed
+			break
+	endswitch
+
+	return 0
+End
