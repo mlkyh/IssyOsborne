@@ -50,6 +50,10 @@ The "Main settings" tab displays:
 - The central profile evolution $h(0,t)$.
 - The colored profile waterfall with film thickness $h(X,t)$.
 
+## Code
+
+The algorthmes and code (macros, functions and windows codes) are available in the src folder. This code is used in Igor Pro procedure file.
+
 ## Community Guidelines
 Bug reports and requests for improvements, and new features are welcomed! Please feel free to make a post to [Issue Tracker](https://git.enit.fr/myahiaou/issy-osborne/-/issues) or contact Dr. Malik Yahiaoui, [malik.yahiaoui@enit.fr](mailto:malik.yahiaoui@enit.fr)
 
