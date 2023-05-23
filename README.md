@@ -1,7 +1,7 @@
 # IssyOsborne
 
 IssyOsborne: 
-trans**I**ent **S**queeze and **S**tarvation in elastoh**Y**drodynamic - **OS**cillating lu**B**ricated contact s**O**lving **R**eynolds o**N**e-dimensional **E**quation  
+trans**I**ent **S**queeze and **S**tarvation in elastoh**Y**drodynamic - **OS**cillating **B**odies s**O**lving **R**eynolds o**N**e-dimensional **E**quation  
 
 This name is a tribute to the famous physicist [Osborne Reynolds](https://en.wikipedia.org/wiki/Osborne_Reynolds) pioneer in the understanding of fluid dynamics.
 
